@@ -46,3 +46,12 @@ class TableModelView(BaseSupersetView):
     @has_access
     def list(self) -> FlaskResponse:
         return super().render_app_template()
+
+class PredictiveModelView(BaseSupersetView):
+    class_permission_name = "Predictive"
+    method_permission_name = MODEL_VIEW_RW_METHOD_PERMISSION_MAP
+
+    @expose("/list/")
+    @has_access
+    def list(self) -> FlaskResponse:
+        return super().render_app_template()

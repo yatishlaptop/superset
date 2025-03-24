@@ -91,13 +91,13 @@ from superset.views.filters import BaseFilterRelatedUsers, FilterRelatedOwners
 logger = logging.getLogger(__name__)
 
 
-class DatasetRestApi(BaseSupersetModelRestApi):
+class PredictiveRestApi(BaseSupersetModelRestApi):
     datamodel = SQLAInterface(SqlaTable)
     base_filters = [["id", DatasourceFilter, lambda: []]]
 
-    resource_name = "dataset"
+    resource_name = "Predictive"
     allow_browser_login = True
-    class_permission_name = "Dataset"
+    class_permission_name = "Predictive"
     method_permission_name = MODEL_API_RW_METHOD_PERMISSION_MAP
     include_route_methods = RouteMethod.REST_MODEL_VIEW_CRUD_SET | {
         RouteMethod.EXPORT,
@@ -1204,5 +1204,3 @@ class DatasetRestApi(BaseSupersetModelRestApi):
                 ) from ex
 
         return data
-
-

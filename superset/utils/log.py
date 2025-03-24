@@ -37,6 +37,11 @@ from superset.utils.core import get_user_id, LoggerLevel, to_int
 if TYPE_CHECKING:
     pass
 
+# Configure logging to include filename and line number
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
+    level=logging.DEBUG,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -324,45 +329,24 @@ class AbstractEventLogger(ABC):
 
 def get_event_logger_from_cfg_value(cfg_value: Any) -> AbstractEventLogger:
     """
-    This function implements the deprecation of assignment
-    of class objects to EVENT_LOGGER configuration, and validates
-    type of configured loggers.
-
-    The motivation for this method is to gracefully deprecate the ability to configure
-    EVENT_LOGGER with a class type, in favor of preconfigured instances which may have
-    required construction-time injection of proprietary or locally-defined dependencies.
-
-    :param cfg_value: The configured EVENT_LOGGER value to be validated
-    :return: if cfg_value is a class type, will return a new instance created using a
-    default con
+    Validate and return the configured event logger instance.
+    Ensures that EVENT_LOGGER is set to a proper instance.
     """
     result: Any = cfg_value
     if inspect.isclass(cfg_value):
         logging.warning(
-            textwrap.dedent(
-                """
-                In superset private config, EVENT_LOGGER has been assigned a class
-                object. In order to accomodate pre-configured instances without a
-                default constructor, assignment of a class is deprecated and may no
-                longer work at some point in the future. Please assign an object
-                instance of a type that implements
-                superset.utils.log.AbstractEventLogger.
-                """
-            )
+            "EVENT_LOGGER should be an instance, not a class. Automatically instantiating."
         )
+        result = cfg_value()
 
-        event_logger_type = cast(type[Any], cfg_value)
-        result = event_logger_type()
-
-    # Verify that we have a valid logger impl
     if not isinstance(result, AbstractEventLogger):
         raise TypeError(
-            "EVENT_LOGGER must be configured with a concrete instance"
-            "of superset.utils.log.AbstractEventLogger."
+            "EVENT_LOGGER must be an instance of superset.utils.log.AbstractEventLogger."
         )
 
     logging.debug("Configured event logger of type %s", type(result))
-    return cast(AbstractEventLogger, result)
+    return result
+
 
 
 class DBEventLogger(AbstractEventLogger):

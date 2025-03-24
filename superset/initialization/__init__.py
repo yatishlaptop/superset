@@ -53,6 +53,7 @@ from superset.extensions import (
     stats_logger_manager,
     talisman,
 )
+
 from superset.security import SupersetSecurityManager
 from superset.sql.parse import SQLGLOT_DIALECTS
 from superset.superset_typing import FlaskResponse
@@ -132,6 +133,8 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         from superset.connectors.sqla.views import (
             RowLevelSecurityView,
             TableModelView,
+            PredictiveModelView
+
         )
         from superset.css_templates.api import CssTemplateRestApi
         from superset.dashboards.api import DashboardRestApi
@@ -139,6 +142,9 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         from superset.dashboards.permalink.api import DashboardPermalinkRestApi
         from superset.databases.api import DatabaseRestApi
         from superset.datasets.api import DatasetRestApi
+        from superset.predictive.api import PredictiveRestApi
+        from superset.predictive.columns.api import PredictiveColumnsRestApi
+        from superset.predictive.metrics.api import PredictiveMetricRestApi
         from superset.datasets.columns.api import DatasetColumnsRestApi
         from superset.datasets.metrics.api import DatasetMetricRestApi
         from superset.datasource.api import DatasourceRestApi
@@ -169,7 +175,7 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
             DashboardModelView,
         )
         from superset.views.database.views import DatabaseView
-        from superset.views.datasource.views import DatasetEditor, Datasource
+        from superset.views.datasource.views import DatasetEditor, Datasource ,ModelEditor
         from superset.views.dynamic_plugins import DynamicPluginsView
         from superset.views.error_handling import set_app_error_handlers
         from superset.views.explore import ExplorePermalinkView, ExploreView
@@ -205,8 +211,13 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         appbuilder.add_api(DashboardRestApi)
         appbuilder.add_api(DatabaseRestApi)
         appbuilder.add_api(DatasetRestApi)
+        appbuilder.add_api(PredictiveRestApi)
         appbuilder.add_api(DatasetColumnsRestApi)
         appbuilder.add_api(DatasetMetricRestApi)
+        #  -----------------------------------------
+        appbuilder.add_api(PredictiveMetricRestApi)
+        appbuilder.add_api(PredictiveColumnsRestApi)
+        #--------------------------------------------------
         appbuilder.add_api(DatasourceRestApi)
         appbuilder.add_api(EmbeddedDashboardRestApi)
         appbuilder.add_api(ExploreRestApi)
@@ -265,6 +276,15 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
             category_icon="",
         )
 
+        appbuilder.add_link(
+            "Predictive",
+            label=__("Predictive Models"),
+            href="/predictivemodelview/list/",
+            icon="fa-line-chart",
+            category="",
+            category_icon="",
+        )
+
         appbuilder.add_view(
             DynamicPluginsView,
             "Plugins",
@@ -293,6 +313,7 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         appbuilder.add_view_no_menu(Dashboard)
         appbuilder.add_view_no_menu(Datasource)
         appbuilder.add_view_no_menu(DatasetEditor)
+        appbuilder.add_view_no_menu(ModelEditor)
         appbuilder.add_view_no_menu(EmbeddedView)
         appbuilder.add_view_no_menu(ExploreView)
         appbuilder.add_view_no_menu(ExplorePermalinkView)
@@ -300,6 +321,9 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         appbuilder.add_view_no_menu(SqllabView)
         appbuilder.add_view_no_menu(Superset)
         appbuilder.add_view_no_menu(TableModelView)
+        appbuilder.add_view_no_menu(PredictiveModelView)
+
+
         appbuilder.add_view_no_menu(TableSchemaView)
         appbuilder.add_view_no_menu(TabStateView)
         appbuilder.add_view_no_menu(TaggedObjectsModelView)

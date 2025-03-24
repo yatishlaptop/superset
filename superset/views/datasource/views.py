@@ -230,3 +230,27 @@ class DatasetEditor(BaseSupersetView):
         if dev is not None:
             return super().render_app_template()
         return redirect("/")
+
+
+class ModelEditor(BaseSupersetView):
+    route_base = "/predictive"
+    class_permission_name = "Predictive"
+
+    @expose("/add/")
+    @has_access
+    @permission_name("read")
+    def root(self) -> FlaskResponse:
+        return super().render_app_template()
+
+    @expose("/<pk>", methods=("GET",))
+    @has_access
+    @permission_name("read")
+    # pylint: disable=unused-argument
+    def show(self, pk: int) -> FlaskResponse:
+        dev = request.args.get("testing")
+        if dev is not None:
+            return super().render_app_template()
+        return redirect("/")
+
+
+

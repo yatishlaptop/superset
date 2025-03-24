@@ -74,6 +74,10 @@ const DatasetList = lazy(
   () => import(/* webpackChunkName: "DatasetList" */ 'src/pages/DatasetList'),
 );
 
+const PredictiveList = lazy(
+  () => import(/* webpackChunkName: "DatasetList" */ 'src/pages/PredictiveList'),
+);
+
 const DatasetCreation = lazy(
   () =>
     import(
@@ -154,6 +158,10 @@ export const routes: Routes = [
   {
     path: '/tablemodelview/list/',
     Component: DatasetList,
+  },
+{
+    path: '/predictivemodelview/list/',
+    Component: PredictiveList,
   },
   {
     path: '/databaseview/list/',
