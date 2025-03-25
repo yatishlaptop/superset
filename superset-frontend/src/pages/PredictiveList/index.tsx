@@ -1,134 +1,133 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
- */
+
 import {
-  getExtensionsRegistry,
+  isFeatureEnabled,
+  FeatureFlag,
+  getChartMetadataRegistry,
+  JsonResponse,
   styled,
   SupersetClient,
+  t,
   useTheme,
   css,
-  t,
 } from '@superset-ui/core';
-import { FunctionComponent, useState, useMemo, useCallback, Key } from 'react';
-import { Link, useHistory } from 'react-router-dom';
+import { useState, useMemo, useCallback } from 'react';
 import rison from 'rison';
+import { uniqBy } from 'lodash';
+import { useSelector } from 'react-redux';
 import {
-  createFetchRelated,
-  createFetchDistinct,
   createErrorHandler,
+  createFetchRelated,
+  handleChartDelete,
 } from 'src/views/CRUD/utils';
-import { ColumnObject } from 'src/features/datasets/types';
-import { useListViewResource } from 'src/views/CRUD/hooks';
-import ConfirmStatusChange from 'src/components/ConfirmStatusChange';
-import { DatasourceModal } from 'src/components/Datasource';
-import DeleteModal from 'src/components/DeleteModal';
+import {
+  useChartEditModal,
+  useFavoriteStatus,
+  useListViewResource,
+} from 'src/views/CRUD/hooks';
 import handleResourceExport from 'src/utils/export';
+import ConfirmStatusChange from 'src/components/ConfirmStatusChange';
+import { TagsList } from 'src/components/Tags';
+import SubMenu, { SubMenuProps } from 'src/features/home/SubMenu';
+import FaveStar from 'src/components/FaveStar';
+import { Link, useHistory } from 'react-router-dom';
 import ListView, {
-  ListViewProps,
-  Filters,
+  Filter,
   FilterOperator,
+  Filters,
+  ListViewProps,
+  SelectOption,
 } from 'src/components/ListView';
-import { DatasetTypeLabel } from 'src/components/Label';
 import Loading from 'src/components/Loading';
-import SubMenu, { SubMenuProps, ButtonProps } from 'src/features/home/SubMenu';
-import Owner from 'src/types/Owner';
+import { dangerouslyGetItemDoNotUse } from 'src/utils/localStorageHelpers';
 import withToasts from 'src/components/MessageToasts/withToasts';
+import PropertiesModal from 'src/explore/components/PropertiesModal';
+import ImportModelsModal from 'src/components/ImportModal/index';
+import Chart from 'src/types/Chart';
+import Tag from 'src/types/TagType';
 import { Tooltip } from 'src/components/Tooltip';
 import Icons from 'src/components/Icons';
-import FacePile from 'src/components/FacePile';
-import CertifiedBadge from 'src/components/CertifiedBadge';
+import { nativeFilterGate } from 'src/dashboard/components/nativeFilters/utils';
 import InfoTooltip from 'src/components/InfoTooltip';
-import ImportModelsModal from 'src/components/ImportModal/index';
-import WarningIconWithTooltip from 'src/components/WarningIconWithTooltip';
-import { isUserAdmin } from 'src/dashboard/util/permissionUtils';
+import CertifiedBadge from 'src/components/CertifiedBadge';
 import { GenericLink } from 'src/components/GenericLink/GenericLink';
-
-import {
-  PAGE_SIZE,
-  SORT_BY,
-  PASSWORDS_NEEDED_MESSAGE,
-  CONFIRM_OVERWRITE_MESSAGE,
-} from 'src/features/datasets/constants';
-import DuplicateDatasetModal from 'src/features/datasets/DuplicateDatasetModal';
-import { useSelector } from 'react-redux';
+import { loadTags } from 'src/components/Tags/utils';
+import FacePile from 'src/components/FacePile';
+import ChartCard from 'src/features/charts/ChartCard';
+import { UserWithPermissionsAndRoles } from 'src/types/bootstrapTypes';
+import { findPermission } from 'src/utils/findPermission';
+import { DashboardCrossLinks } from 'src/components/ListView/DashboardCrossLinks';
 import { ModifiedInfo } from 'src/components/AuditInfo';
 import { QueryObjectColumns } from 'src/views/CRUD/types';
-
-const extensionsRegistry = getExtensionsRegistry();
-const DatasetDeleteRelatedExtension = extensionsRegistry.get(
-  'dataset.delete.related',
-);
 
 const FlexRowContainer = styled.div`
   align-items: center;
   display: flex;
+
+  a {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.2;
+  }
 
   svg {
     margin-right: ${({ theme }) => theme.gridUnit}px;
   }
 `;
 
-const Actions = styled.div`
-  ${({ theme }) => css`
-    color: ${theme.colors.grayscale.base};
+const PAGE_SIZE = 25;
+const PASSWORDS_NEEDED_MESSAGE = t(
+  'The passwords for the databases below are needed in order to ' +
+    'import them together with the charts. Please note that the ' +
+    '"Secure Extra" and "Certificate" sections of ' +
+    'the database configuration are not present in export files, and ' +
+    'should be added manually after the import if they are needed.',
+);
+const CONFIRM_OVERWRITE_MESSAGE = t(
+  'You are importing one or more charts that already exist. ' +
+    'Overwriting might cause you to lose some of your work. Are you ' +
+    'sure you want to overwrite?',
+);
 
-    .disabled {
-      svg,
-      i {
-        &:hover {
-          path {
-            fill: ${theme.colors.grayscale.light1};
-          }
-        }
-      }
-      color: ${theme.colors.grayscale.light1};
-      .antd5-menu-item:hover {
-        cursor: default;
-      }
-      &::after {
-        color: ${theme.colors.grayscale.light1};
-      }
-    }
-  `}
-`;
+const registry = getChartMetadataRegistry();
 
-type Dataset = {
-  changed_by_name: string;
-  changed_by: string;
-  changed_on_delta_humanized: string;
-  database: {
-    id: string;
-    database_name: string;
+const createFetchDatasets = async (
+  filterValue = '',
+  page: number,
+  pageSize: number,
+) => {
+  // add filters if filterValue
+  const filters = filterValue
+    ? { filters: [{ col: 'table_name', opr: 'sw', value: filterValue }] }
+    : {};
+  const queryParams = rison.encode({
+    columns: ['datasource_name', 'datasource_id'],
+    keys: ['none'],
+    order_column: 'table_name',
+    order_direction: 'asc',
+    page,
+    page_size: pageSize,
+    ...filters,
+  });
+
+  const { json = {} } = await SupersetClient.get({
+    endpoint: `/api/v1/dataset/?q=${queryParams}`,
+  });
+
+  const datasets = json?.result?.map(
+    ({ table_name: tableName, id }: { table_name: string; id: number }) => ({
+      label: tableName,
+      value: id,
+    }),
+  );
+
+  return {
+    data: uniqBy<SelectOption>(datasets, 'value'),
+    totalCount: json?.count,
   };
-  kind: string;
-  explore_url: string;
-  id: number;
-  owners: Array<Owner>;
-  schema: string;
-  table_name: string;
 };
 
-interface VirtualDataset extends Dataset {
-  extra: Record<string, any>;
-  sql: string;
-}
-
-interface DatasetListProps {
+interface PredictiveListProps {
   addDangerToast: (msg: string) => void;
   addSuccessToast: (msg: string) => void;
   user: {
@@ -138,41 +137,53 @@ interface DatasetListProps {
   };
 }
 
-const PredictiveList: FunctionComponent<DatasetListProps> = ({
-  addDangerToast,
-  addSuccessToast,
-  user,
-}) => {
-  const history = useHistory();
+const StyledActions = styled.div`
+  color: ${({ theme }) => theme.colors.grayscale.base};
+`;
+
+function PredictiveList(props: PredictiveListProps) {
   const theme = useTheme();
+  const {
+    addDangerToast,
+    addSuccessToast,
+    user: { userId },
+  } = props;
+
+  const history = useHistory();
+
   const {
     state: {
       loading,
-      resourceCount: datasetCount,
-      resourceCollection: datasets,
+      resourceCount: chartCount,
+      resourceCollection: charts,
       bulkSelectEnabled,
     },
+    setResourceCollection: setCharts,
     hasPerm,
     fetchData,
     toggleBulkSelect,
     refreshData,
-  } = useListViewResource<Dataset>('dataset', t('dataset'), addDangerToast);
+  } = useListViewResource<Chart>('chart', t('chart'), addDangerToast);
 
-  const [datasetCurrentlyDeleting, setDatasetCurrentlyDeleting] = useState<
-    | (Dataset & {
-        charts: any;
-        dashboards: any;
-      })
-    | null
-  >(null);
+  const chartIds = useMemo(() => charts.map(c => c.id), [charts]);
+  const { roles } = useSelector<any, UserWithPermissionsAndRoles>(
+    state => state.user,
+  );
+  const canReadTag = findPermission('can_read', 'Tag', roles);
 
-  const [datasetCurrentlyEditing, setDatasetCurrentlyEditing] =
-    useState<Dataset | null>(null);
+  const [saveFavoriteStatus, favoriteStatus] = useFavoriteStatus(
+    'chart',
+    chartIds,
+    addDangerToast,
+  );
+  const {
+    sliceCurrentlyEditing,
+    handleChartUpdated,
+    openChartEditModal,
+    closeChartEditModal,
+  } = useChartEditModal(setCharts, charts);
 
-  const [datasetCurrentlyDuplicating, setDatasetCurrentlyDuplicating] =
-    useState<VirtualDataset | null>(null);
-
-  const [importingDataset, showImportModal] = useState<boolean>(false);
+  const [importingChart, showImportModal] = useState<boolean>(false);
   const [passwordFields, setPasswordFields] = useState<string[]>([]);
   const [preparingExport, setPreparingExport] = useState<boolean>(false);
   const [sshTunnelPasswordFields, setSSHTunnelPasswordFields] = useState<
@@ -186,95 +197,102 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
     setSSHTunnelPrivateKeyPasswordFields,
   ] = useState<string[]>([]);
 
-  const PREVENT_UNSAFE_DEFAULT_URLS_ON_DATASET = useSelector<any, boolean>(
-    state =>
-      state.common?.conf?.PREVENT_UNSAFE_DEFAULT_URLS_ON_DATASET || false,
-  );
+  // TODO: Fix usage of localStorage keying on the user id
+  const userSettings = dangerouslyGetItemDoNotUse(userId?.toString(), null) as {
+    thumbnails: boolean;
+  };
 
-  const openDatasetImportModal = () => {
+  const openChartImportModal = () => {
     showImportModal(true);
   };
 
-  const closeDatasetImportModal = () => {
+  const closeChartImportModal = () => {
     showImportModal(false);
   };
 
-  const handleDatasetImport = () => {
+  const handleChartImport = () => {
     showImportModal(false);
     refreshData();
-    addSuccessToast(t('Dataset imported'));
+    addSuccessToast(t('Chart imported'));
   };
 
+  const canCreate = hasPerm('can_write');
   const canEdit = hasPerm('can_write');
   const canDelete = hasPerm('can_write');
-  const canCreate = hasPerm('can_write');
-  const canDuplicate = hasPerm('can_duplicate');
   const canExport = hasPerm('can_export');
-
-  const initialSort = SORT_BY;
-
-  const openDatasetEditModal = useCallback(
-    ({ id }: Dataset) => {
-      SupersetClient.get({
-        endpoint: `/api/v1/predictive/${id}`,
-      })
-        .then(({ json = {} }) => {
-          const addCertificationFields = json.result.columns.map(
-            (column: ColumnObject) => {
-              const {
-                certification: { details = '', certified_by = '' } = {},
-              } = JSON.parse(column.extra || '{}') || {};
-              return {
-                ...column,
-                certification_details: details || '',
-                certified_by: certified_by || '',
-                is_certified: details || certified_by,
-              };
-            },
-          );
-          // eslint-disable-next-line no-param-reassign
-          json.result.columns = [...addCertificationFields];
-          setDatasetCurrentlyEditing(json.result);
-        })
-        .catch(() => {
-          addDangerToast(
-            t('An error occurred while fetching dataset related data'),
-          );
-        });
-    },
-    [addDangerToast],
-  );
-
-  const openDatasetDeleteModal = (dataset: Dataset) =>
-    SupersetClient.get({
-      endpoint: `/api/v1/predictive/${dataset.id}/related_objects`,
-    })
-      .then(({ json = {} }) => {
-        setDatasetCurrentlyDeleting({
-          ...dataset,
-          charts: json.charts,
-          dashboards: json.dashboards,
-        });
-      })
-      .catch(
-        createErrorHandler(errMsg =>
-          t(
-            'An error occurred while fetching dataset related data: %s',
-            errMsg,
-          ),
-        ),
-      );
-
-  const openDatasetDuplicateModal = (dataset: VirtualDataset) => {
-    setDatasetCurrentlyDuplicating(dataset);
-  };
-
-  const handleBulkDatasetExport = (datasetsToExport: Dataset[]) => {
-    const ids = datasetsToExport.map(({ id }) => id);
-    handleResourceExport('dataset', ids, () => {
+  const initialSort = [{ id: 'changed_on_delta_humanized', desc: true }];
+  const handleBulkChartExport = (chartsToExport: Chart[]) => {
+    const ids = chartsToExport.map(({ id }) => id);
+    handleResourceExport('chart', ids, () => {
       setPreparingExport(false);
     });
     setPreparingExport(true);
+  };
+
+  function handleBulkChartDelete(chartsToDelete: Chart[]) {
+    SupersetClient.delete({
+      endpoint: `/api/v1/predictive/?q=${rison.encode(
+        chartsToDelete.map(({ id }) => id),
+      )}`,
+    }).then(
+      ({ json = {} }) => {
+        refreshData();
+        addSuccessToast(json.message);
+      },
+      createErrorHandler(errMsg =>
+        addDangerToast(
+          t('There was an issue deleting the selected charts: %s', errMsg),
+        ),
+      ),
+    );
+  }
+  const fetchDashboards = async (
+    filterValue = '',
+    page: number,
+    pageSize: number,
+  ) => {
+    // add filters if filterValue
+    const filters = filterValue
+      ? {
+          filters: [
+            {
+              col: 'dashboard_title',
+              opr: FilterOperator.StartsWith,
+              value: filterValue,
+            },
+          ],
+        }
+      : {};
+    const queryParams = rison.encode({
+      columns: ['dashboard_title', 'id'],
+      keys: ['none'],
+      order_column: 'dashboard_title',
+      order_direction: 'asc',
+      page,
+      page_size: pageSize,
+      ...filters,
+    });
+    const response: void | JsonResponse = await SupersetClient.get({
+      endpoint: `/api/v1/dashboard/?q=${queryParams}`,
+    }).catch(() =>
+      addDangerToast(t('An error occurred while fetching dashboards')),
+    );
+    const dashboards = response?.json?.result?.map(
+      ({
+        dashboard_title: dashboardTitle,
+        id,
+      }: {
+        dashboard_title: string;
+        id: number;
+      }) => ({
+        label: dashboardTitle,
+        value: id,
+      }),
+    );
+    return {
+      data: uniqBy<SelectOption>(dashboards, 'value'),
+      totalCount: response?.json?.count,
+    };
   };
 
   const columns = useMemo(
@@ -282,92 +300,111 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
       {
         Cell: ({
           row: {
-            original: { kind },
+            original: { id },
           },
-        }: any) => null,
-        accessor: 'kind_icon',
+        }: any) =>
+          userId && (
+            <FaveStar
+              itemId={id}
+              saveFaveStar={saveFavoriteStatus}
+              isStarred={favoriteStatus[id]}
+            />
+          ),
+        Header: '',
+        id: 'id',
         disableSortBy: true,
         size: 'xs',
-        id: 'id',
+        hidden: !userId,
       },
       {
         Cell: ({
           row: {
             original: {
-              extra,
-              table_name: datasetTitle,
+              url,
+              slice_name: sliceName,
+              certified_by: certifiedBy,
+              certification_details: certificationDetails,
               description,
-              explore_url: exploreURL,
             },
           },
-        }: any) => {
-          let titleLink: JSX.Element;
-          if (PREVENT_UNSAFE_DEFAULT_URLS_ON_DATASET) {
-            titleLink = (
-              <Link data-test="internal-link" to={exploreURL}>
-                {datasetTitle}
-              </Link>
-            );
-          } else {
-            titleLink = (
-              // exploreUrl can be a link to Explore or an external link
-              // in the first case use SPA routing, else use HTML anchor
-              <GenericLink to={exploreURL}>{datasetTitle}</GenericLink>
-            );
-          }
-          try {
-            const parsedExtra = JSON.parse(extra);
-            return (
-              <FlexRowContainer>
-                {parsedExtra?.certification && (
+        }: any) => (
+          <FlexRowContainer>
+            <Link to={url} data-test={`${sliceName}-list-chart-title`}>
+              {certifiedBy && (
+                <>
                   <CertifiedBadge
-                    certifiedBy={parsedExtra.certification.certified_by}
-                    details={parsedExtra.certification.details}
-                    size="l"
-                  />
-                )}
-                {parsedExtra?.warning_markdown && (
-                  <WarningIconWithTooltip
-                    warningMarkdown={parsedExtra.warning_markdown}
-                    size="l"
-                  />
-                )}
-                {titleLink}
-                {description && <InfoTooltip tooltip={description} />}
-              </FlexRowContainer>
-            );
-          } catch {
-            return titleLink;
-          }
-        },
+                    certifiedBy={certifiedBy}
+                    details={certificationDetails}
+                  />{' '}
+                </>
+              )}
+              {sliceName}
+            </Link>
+            {description && <InfoTooltip tooltip={description} />}
+          </FlexRowContainer>
+        ),
         Header: t('Name'),
-        accessor: 'table_name',
+        accessor: 'slice_name',
       },
       {
         Cell: ({
           row: {
-            original: { kind },
+            original: { viz_type: vizType },
           },
-        }: any) => <DatasetTypeLabel datasetType={kind} />,
+        }: any) => registry.get(vizType)?.name || vizType,
         Header: t('Type'),
-        accessor: 'kind',
+        accessor: 'viz_type',
+        size: 'xxl',
+      },
+      {
+        Cell: ({
+          row: {
+            original: {
+              datasource_name_text: dsNameTxt,
+              datasource_url: dsUrl,
+            },
+          },
+        }: any) => (
+          <Tooltip title={dsNameTxt} placement="top">
+            <GenericLink to={dsUrl}>{dsNameTxt?.split('.')[1]}</GenericLink>
+          </Tooltip>
+        ),
+        Header: t('Dataset'),
+        accessor: 'datasource_id',
         disableSortBy: true,
-        size: 'md',
+        size: 'xl',
       },
       {
-        Header: t('Database'),
-        accessor: 'database.database_name',
-        size: 'lg',
-      },
-      {
-        Header: t('Schema'),
-        accessor: 'schema',
-        size: 'lg',
-      },
-      {
-        accessor: 'database',
+        Cell: ({
+          row: {
+            original: { dashboards },
+          },
+        }: any) => <DashboardCrossLinks dashboards={dashboards} />,
+        Header: t('On dashboards'),
+        accessor: 'dashboards',
         disableSortBy: true,
-        hidden: true,
+        size: 'xxl',
+      },
+      {
+        Cell: ({
+          row: {
+            original: { tags = [] },
+          },
+        }: any) => (
+          // Only show custom type tags
+          <TagsList
+            tags={tags.filter((tag: Tag) =>
+              tag.type
+                ? tag.type === 1 || tag.type === 'TagTypes.custom'
+                : true,
+            )}
+            maxTags={3}
+          />
+        ),
+        Header: t('Tags'),
+        accessor: 'tags',
+        disableSortBy: true,
+        hidden: !isFeatureEnabled(FeatureFlag.TaggingSystem),
       },
       {
         Cell: ({
@@ -376,9 +413,9 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
           },
         }: any) => <FacePile users={owners} />,
         Header: t('Owners'),
-        id: 'owners',
+        accessor: 'owners',
         disableSortBy: true,
-        size: 'lg',
+        size: 'xl',
       },
       {
         Cell: ({
@@ -390,45 +427,54 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
           },
         }: any) => <ModifiedInfo date={changedOn} user={changedBy} />,
         Header: t('Last modified'),
-        accessor: 'changed_on_delta_humanized',
+        accessor: 'last_saved_at',
         size: 'xl',
       },
       {
-        accessor: 'sql',
-        hidden: true,
-        disableSortBy: true,
-      },
-      {
         Cell: ({ row: { original } }: any) => {
-          // Verify owner or isAdmin
-          const allowEdit =
-            original.owners.map((o: Owner) => o.id).includes(user.userId) ||
-            isUserAdmin(user);
-
-          const handleEdit = () => openDatasetEditModal(original);
-          const handleDelete = () => openDatasetDeleteModal(original);
-          const handleExport = () => handleBulkDatasetExport([original]);
-          const handleDuplicate = () => openDatasetDuplicateModal(original);
-          if (!canEdit && !canDelete && !canExport && !canDuplicate) {
+          const handleDelete = () =>
+            handleChartDelete(
+              original,
+              addSuccessToast,
+              addDangerToast,
+              refreshData,
+            );
+          const openEditModal = () => openChartEditModal(original);
+          const handleExport = () => handleBulkChartExport([original]);
+          if (!canEdit && !canDelete && !canExport) {
             return null;
           }
+
           return (
-            <Actions className="actions">
+            <StyledActions className="actions">
               {canDelete && (
-                <Tooltip
-                  id="delete-action-tooltip"
-                  title={t('Delete')}
-                  placement="bottom"
+                <ConfirmStatusChange
+                  title={t('Please confirm')}
+                  description={
+                    <>
+                      {t('Are you sure you want to delete')}{' '}
+                      <b>{original.slice_name}</b>?
+                    </>
+                  }
+                  onConfirm={handleDelete}
                 >
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="action-button"
-                    onClick={handleDelete}
-                  >
-                    <Icons.DeleteOutlined iconSize="l" />
-                  </span>
-                </Tooltip>
+                  {confirmDelete => (
+                    <Tooltip
+                      id="delete-action-tooltip"
+                      title={t('Delete')}
+                      placement="bottom"
+                    >
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="action-button"
+                        onClick={confirmDelete}
+                      >
+                        <Icons.DeleteOutlined iconSize="l" />
+                      </span>
+                    </Tooltip>
+                  )}
+                </ConfirmStatusChange>
               )}
               {canExport && (
                 <Tooltip
@@ -449,137 +495,160 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
               {canEdit && (
                 <Tooltip
                   id="edit-action-tooltip"
-                  title={
-                    allowEdit
-                      ? t('Edit')
-                      : t(
-                          'You must be a dataset owner in order to edit. Please reach out to a dataset owner to request modifications or edit access.',
-                        )
-                  }
-                  placement="bottomRight"
-                >
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className={allowEdit ? 'action-button' : 'disabled'}
-                    onClick={allowEdit ? handleEdit : undefined}
-                  >
-                    <Icons.EditOutlined iconSize="l" />
-                  </span>
-                </Tooltip>
-              )}
-              {canDuplicate && original.kind === 'virtual' && (
-                <Tooltip
-                  id="duplicate-action-tooltip"
-                  title={t('Duplicate')}
+                  title={t('Edit')}
                   placement="bottom"
                 >
                   <span
                     role="button"
                     tabIndex={0}
                     className="action-button"
-                    onClick={handleDuplicate}
+                    onClick={openEditModal}
                   >
-                    <Icons.CopyOutlined />
+                    <Icons.EditOutlined data-test="edit-alt" iconSize="l" />
                   </span>
                 </Tooltip>
               )}
-            </Actions>
+            </StyledActions>
           );
         },
         Header: t('Actions'),
         id: 'actions',
-        hidden: !canEdit && !canDelete && !canDuplicate,
         disableSortBy: true,
+        hidden: !canEdit && !canDelete,
       },
       {
         accessor: QueryObjectColumns.ChangedBy,
         hidden: true,
       },
     ],
-    [canEdit, canDelete, canExport, openDatasetEditModal, canDuplicate, user],
+    [
+      userId,
+      canEdit,
+      canDelete,
+      canExport,
+      saveFavoriteStatus,
+      favoriteStatus,
+      refreshData,
+      addSuccessToast,
+      addDangerToast,
+    ],
   );
 
-  const filterTypes: Filters = useMemo(
-    () => [
+  const favoritesFilter: Filter = useMemo(
+    () => ({
+      Header: t('Favorite'),
+      key: 'favorite',
+      id: 'id',
+      urlDisplay: 'favorite',
+      input: 'select',
+      operator: FilterOperator.ChartIsFav,
+      unfilteredLabel: t('Any'),
+      selects: [
+        { label: t('Yes'), value: true },
+        { label: t('No'), value: false },
+      ],
+    }),
+    [],
+  );
+
+  const filters: Filters = useMemo(() => {
+    const filters_list = [
       {
         Header: t('Name'),
         key: 'search',
-        id: 'table_name',
+        id: 'slice_name',
         input: 'search',
-        operator: FilterOperator.Contains,
+        operator: FilterOperator.ChartAllText,
       },
       {
         Header: t('Type'),
-        key: 'sql',
-        id: 'sql',
-        input: 'select',
-        operator: FilterOperator.DatasetIsNullOrEmpty,
-        unfilteredLabel: 'All',
-        selects: [
-          { label: t('Virtual'), value: false },
-          { label: t('Physical'), value: true },
-        ],
-      },
-      {
-        Header: t('Database'),
-        key: 'database',
-        id: 'database',
-        input: 'select',
-        operator: FilterOperator.RelationOneMany,
-        unfilteredLabel: 'All',
-        fetchSelects: createFetchRelated(
-          'dataset',
-          'database',
-          createErrorHandler(errMsg =>
-            t('An error occurred while fetching datasets: %s', errMsg),
-          ),
-        ),
-        paginate: true,
-      },
-      {
-        Header: t('Schema'),
-        key: 'schema',
-        id: 'schema',
+        key: 'viz_type',
+        id: 'viz_type',
         input: 'select',
         operator: FilterOperator.Equals,
-        unfilteredLabel: 'All',
-        fetchSelects: createFetchDistinct(
-          'dataset',
-          'schema',
-          createErrorHandler(errMsg =>
-            t('An error occurred while fetching schema values: %s', errMsg),
-          ),
-        ),
+        unfilteredLabel: t('All'),
+        selects: registry
+          .keys()
+          .filter(k => nativeFilterGate(registry.get(k)?.behaviors || []))
+          .map(k => ({ label: registry.get(k)?.name || k, value: k }))
+          .sort((a, b) => {
+            if (!a.label || !b.label) {
+              return 0;
+            }
+
+            if (a.label > b.label) {
+              return 1;
+            }
+            if (a.label < b.label) {
+              return -1;
+            }
+
+            return 0;
+          }),
+      },
+      {
+        Header: t('Dataset'),
+        key: 'dataset',
+        id: 'datasource_id',
+        input: 'select',
+        operator: FilterOperator.Equals,
+        unfilteredLabel: t('All'),
+        fetchSelects: createFetchDatasets,
         paginate: true,
       },
+      ...(isFeatureEnabled(FeatureFlag.TaggingSystem) && canReadTag
+        ? [
+            {
+              Header: t('Tag'),
+              key: 'tags',
+              id: 'tags',
+              input: 'select',
+              operator: FilterOperator.ChartTagById,
+              unfilteredLabel: t('All'),
+              fetchSelects: loadTags,
+            },
+          ]
+        : []),
       {
         Header: t('Owner'),
         key: 'owner',
         id: 'owners',
         input: 'select',
         operator: FilterOperator.RelationManyMany,
-        unfilteredLabel: 'All',
+        unfilteredLabel: t('All'),
         fetchSelects: createFetchRelated(
-          'dataset',
+          'chart',
           'owners',
           createErrorHandler(errMsg =>
-            t(
-              'An error occurred while fetching dataset owner values: %s',
-              errMsg,
+            addDangerToast(
+              t(
+                'An error occurred while fetching chart owners values: %s',
+                errMsg,
+              ),
             ),
           ),
-          user,
+          props.user,
         ),
         paginate: true,
       },
+      {
+        Header: t('Dashboard'),
+        key: 'dashboards',
+        id: 'dashboards',
+        input: 'select',
+        operator: FilterOperator.RelationManyMany,
+        unfilteredLabel: t('All'),
+        fetchSelects: fetchDashboards,
+        paginate: true,
+      },
+      ...(userId ? [favoritesFilter] : []),
       {
         Header: t('Certified'),
         key: 'certified',
         id: 'id',
         urlDisplay: 'certified',
         input: 'select',
-        operator: FilterOperator.DatasetIsCertified,
+        operator: FilterOperator.ChartIsCertified,
         unfilteredLabel: t('Any'),
         selects: [
           { label: t('Yes'), value: true },
@@ -594,7 +663,7 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
         operator: FilterOperator.RelationOneMany,
         unfilteredLabel: t('All'),
         fetchSelects: createFetchRelated(
-          'dataset',
+          'chart',
           'changed_by',
           createErrorHandler(errMsg =>
             t(
@@ -602,31 +671,78 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
               errMsg,
             ),
           ),
-          user,
+          props.user,
         ),
         paginate: true,
       },
+    ] as Filters;
+    return filters_list;
+  }, [addDangerToast, favoritesFilter, props.user]);
+
+  const sortTypes = [
+    {
+      desc: false,
+      id: 'slice_name',
+      label: t('Alphabetical'),
+      value: 'alphabetical',
+    },
+    {
+      desc: true,
+      id: 'changed_on_delta_humanized',
+      label: t('Recently modified'),
+      value: 'recently_modified',
+    },
+    {
+      desc: false,
+      id: 'changed_on_delta_humanized',
+      label: t('Least recently modified'),
+      value: 'least_recently_modified',
+    },
+  ];
+
+  const renderCard = useCallback(
+    (chart: Chart) => (
+      <ChartCard
+        chart={chart}
+        showThumbnails={
+          userSettings
+            ? userSettings.thumbnails
+            : isFeatureEnabled(FeatureFlag.Thumbnails)
+        }
+        hasPerm={hasPerm}
+        openChartEditModal={openChartEditModal}
+        bulkSelectEnabled={bulkSelectEnabled}
+        addDangerToast={addDangerToast}
+        addSuccessToast={addSuccessToast}
+        refreshData={refreshData}
+        userId={userId}
+        loading={loading}
+        favoriteStatus={favoriteStatus[chart.id]}
+        saveFavoriteStatus={saveFavoriteStatus}
+        handleBulkChartExport={handleBulkChartExport}
+      />
+    ),
+    [
+      addDangerToast,
+      addSuccessToast,
+      bulkSelectEnabled,
+      favoriteStatus,
+      hasPerm,
+      loading,
     ],
-    [user],
   );
 
-  const menuData: SubMenuProps = {
-    activeChild: 'Predictive',
-    name: t('Predictive Analytics'),
-  };
-
-  const buttonArr: Array<ButtonProps> = [];
-
+  const subMenuButtons: SubMenuProps['buttons'] = [];
   if (canDelete || canExport) {
-    buttonArr.push({
+    subMenuButtons.push({
       name: t('Bulk select'),
-      onClick: toggleBulkSelect,
       buttonStyle: 'secondary',
+      'data-test': 'bulk-select',
+      onClick: toggleBulkSelect,
     });
   }
-
   if (canCreate) {
-    buttonArr.push({
+    subMenuButtons.push({
       name: (
         <>
           <Icons.PlusOutlined
@@ -636,224 +752,48 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
               vertical-align: text-top;
             `}
           />
-          {t('Model')}
+          <span>{t('Model')}</span>
         </>
       ),
-      onClick: () => {
-        history.push('/predictive/add/');
-      },
       buttonStyle: 'primary',
+      onClick: () => {
+        history.push('/predictive/add');
+      },
     });
 
-    buttonArr.push({
+    subMenuButtons.push({
       name: (
         <Tooltip
           id="import-tooltip"
-          title={t('Import datasets')}
+          title={t('Import charts')}
           placement="bottomRight"
         >
           <Icons.DownloadOutlined
-            iconColor={theme.colors.primary.dark1}
             data-test="import-button"
+            iconColor={theme.colors.primary.dark1}
           />
         </Tooltip>
       ),
       buttonStyle: 'link',
-      onClick: openDatasetImportModal,
+      onClick: openChartImportModal,
     });
   }
 
-  menuData.buttons = buttonArr;
-
-  const closeDatasetDeleteModal = () => {
-    setDatasetCurrentlyDeleting(null);
-  };
-
-  const closeDatasetEditModal = () => {
-    setDatasetCurrentlyEditing(null);
-  };
-
-  const closeDatasetDuplicateModal = () => {
-    setDatasetCurrentlyDuplicating(null);
-  };
-
-  const handleDatasetDelete = ({ id, table_name: tableName }: Dataset) => {
-    SupersetClient.delete({
-      endpoint: `/api/v1/predictive/${id}`,
-    }).then(
-      () => {
-        refreshData();
-        setDatasetCurrentlyDeleting(null);
-        addSuccessToast(t('Deleted: %s', tableName));
-      },
-      createErrorHandler(errMsg =>
-        addDangerToast(
-          t('There was an issue deleting %s: %s', tableName, errMsg),
-        ),
-      ),
-    );
-  };
-
-  const handleBulkDatasetDelete = (datasetsToDelete: Dataset[]) => {
-    SupersetClient.delete({
-      endpoint: `/api/v1/preditive/?q=${rison.encode(
-        datasetsToDelete.map(({ id }) => id),
-      )}`,
-    }).then(
-      ({ json = {} }) => {
-        refreshData();
-        addSuccessToast(json.message);
-      },
-      createErrorHandler(errMsg =>
-        addDangerToast(
-          t('There was an issue deleting the selected datasets: %s', errMsg),
-        ),
-      ),
-    );
-  };
-
-  const handleDatasetDuplicate = (newDatasetName: string) => {
-    if (datasetCurrentlyDuplicating === null) {
-      addDangerToast(t('There was an issue duplicating the dataset.'));
-    }
-
-    SupersetClient.post({
-      endpoint: `/api/v1/predictive/duplicate`,
-      jsonPayload: {
-        base_model_id: datasetCurrentlyDuplicating?.id,
-        table_name: newDatasetName,
-      },
-    }).then(
-      () => {
-        setDatasetCurrentlyDuplicating(null);
-        refreshData();
-      },
-      createErrorHandler(errMsg =>
-        addDangerToast(
-          t('There was an issue duplicating the selected datasets: %s', errMsg),
-        ),
-      ),
-    );
-  };
-
   return (
     <>
-      <SubMenu {...menuData} />
-      {datasetCurrentlyDeleting && (
-        <DeleteModal
-          description={
-            <>
-              <p>
-                {t('The dataset')}
-                <b> {datasetCurrentlyDeleting.table_name} </b>
-                {t(
-                  'is linked to %s charts that appear on %s dashboards. Are you sure you want to continue? Deleting the dataset will break those objects.',
-                  datasetCurrentlyDeleting.charts.count,
-                  datasetCurrentlyDeleting.dashboards.count,
-                )}
-              </p>
-              {datasetCurrentlyDeleting.dashboards.count >= 1 && (
-                <>
-                  <h4>{t('Affected Dashboards')}</h4>
-                  <ul>
-                    {datasetCurrentlyDeleting.dashboards.result
-                      .slice(0, 10)
-                      .map(
-                        (
-                          result: { id: Key | null | undefined; title: string },
-                          index: number,
-                        ) => (
-                          <li key={result.id}>
-                            <a
-                              href={`/superset/dashboard/${result.id}`}
-                              target="_atRiskItem"
-                            >
-                              {result.title}
-                            </a>
-                          </li>
-                        ),
-                      )}
-                    {datasetCurrentlyDeleting.dashboards.result.length > 10 && (
-                      <li>
-                        {t(
-                          '... and %s others',
-                          datasetCurrentlyDeleting.dashboards.result.length -
-                            10,
-                        )}
-                      </li>
-                    )}
-                  </ul>
-                </>
-              )}
-              {datasetCurrentlyDeleting.charts.count >= 1 && (
-                <>
-                  <h4>{t('Affected Charts')}</h4>
-                  <ul>
-                    {datasetCurrentlyDeleting.charts.result.slice(0, 10).map(
-                      (
-                        result: {
-                          id: Key | null | undefined;
-                          slice_name: string;
-                        },
-                        index: number,
-                      ) => (
-                        <li key={result.id}>
-                          <a
-                            href={`/explore/?slice_id=${result.id}`}
-                            target="_atRiskItem"
-                          >
-                            {result.slice_name}
-                          </a>
-                        </li>
-                      ),
-                    )}
-                    {datasetCurrentlyDeleting.charts.result.length > 10 && (
-                      <li>
-                        {t(
-                          '... and %s others',
-                          datasetCurrentlyDeleting.charts.result.length - 10,
-                        )}
-                      </li>
-                    )}
-                  </ul>
-                </>
-              )}
-              {DatasetDeleteRelatedExtension && (
-                <DatasetDeleteRelatedExtension
-                  dataset={datasetCurrentlyDeleting}
-                />
-              )}
-            </>
-          }
-          onConfirm={() => {
-            if (datasetCurrentlyDeleting) {
-              handleDatasetDelete(datasetCurrentlyDeleting);
-            }
-          }}
-          onHide={closeDatasetDeleteModal}
-          open
-          title={t('Delete Dataset?')}
-        />
-      )}
-      {datasetCurrentlyEditing && (
-        <DatasourceModal
-          datasource={datasetCurrentlyEditing}
-          onDatasourceSave={refreshData}
-          onHide={closeDatasetEditModal}
+      <SubMenu name={t('Predictive Modeling')} buttons={subMenuButtons} />
+      {sliceCurrentlyEditing && (
+        <PropertiesModal
+          onHide={closeChartEditModal}
+          onSave={handleChartUpdated}
           show
+          slice={sliceCurrentlyEditing}
         />
       )}
-      <DuplicateDatasetModal
-        dataset={datasetCurrentlyDuplicating}
-        onHide={closeDatasetDuplicateModal}
-        onDuplicate={handleDatasetDuplicate}
-      />
       <ConfirmStatusChange
         title={t('Please confirm')}
-        description={t(
-          'Are you sure you want to delete the selected datasets?',
-        )}
-        onConfirm={handleBulkDatasetDelete}
+        description={t('Are you sure you want to delete the selected charts?')}
+        onConfirm={handleBulkChartDelete}
       >
         {confirmDelete => {
           const bulkActions: ListViewProps['bulkActions'] = [];
@@ -861,8 +801,8 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
             bulkActions.push({
               key: 'delete',
               name: t('Delete'),
-              onSelect: confirmDelete,
               type: 'danger',
+              onSelect: confirmDelete,
             });
           }
           if (canExport) {
@@ -870,78 +810,55 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
               key: 'export',
               name: t('Export'),
               type: 'primary',
-              onSelect: handleBulkDatasetExport,
+              onSelect: handleBulkChartExport,
             });
           }
           return (
-            <ListView<Dataset>
-              className="dataset-list-view"
-              columns={columns}
-              data={datasets}
-              count={datasetCount}
-              pageSize={PAGE_SIZE}
-              fetchData={fetchData}
-              filters={filterTypes}
-              loading={loading}
-              initialSort={initialSort}
+            <ListView<Chart>
               bulkActions={bulkActions}
               bulkSelectEnabled={bulkSelectEnabled}
+              cardSortSelectOptions={sortTypes}
+              className="chart-list-view"
+              columns={columns}
+              count={chartCount}
+              data={charts}
               disableBulkSelect={toggleBulkSelect}
-              addDangerToast={addDangerToast}
-              addSuccessToast={addSuccessToast}
               refreshData={refreshData}
-              renderBulkSelectCopy={selected => {
-                const { virtualCount, physicalCount } = selected.reduce(
-                  (acc, e) => {
-                    if (e.original.kind === 'physical') acc.physicalCount += 1;
-                    else if (e.original.kind === 'virtual') {
-                      acc.virtualCount += 1;
-                    }
-                    return acc;
-                  },
-                  { virtualCount: 0, physicalCount: 0 },
-                );
-
-                if (!selected.length) {
-                  return t('0 Selected');
-                }
-                if (virtualCount && !physicalCount) {
-                  return t(
-                    '%s Selected (Virtual)',
-                    selected.length,
-                    virtualCount,
-                  );
-                }
-                if (physicalCount && !virtualCount) {
-                  return t(
-                    '%s Selected (Physical)',
-                    selected.length,
-                    physicalCount,
-                  );
-                }
-
-                return t(
-                  '%s Selected (%s Physical, %s Virtual)',
-                  selected.length,
-                  physicalCount,
-                  virtualCount,
-                );
-              }}
+              fetchData={fetchData}
+              filters={filters}
+              initialSort={initialSort}
+              loading={loading}
+              pageSize={PAGE_SIZE}
+              renderCard={renderCard}
+              enableBulkTag
+              bulkTagResourceName="chart"
+              addSuccessToast={addSuccessToast}
+              addDangerToast={addDangerToast}
+              showThumbnails={
+                userSettings
+                  ? userSettings.thumbnails
+                  : isFeatureEnabled(FeatureFlag.Thumbnails)
+              }
+              defaultViewMode={
+                isFeatureEnabled(FeatureFlag.ListviewsDefaultCardView)
+                  ? 'card'
+                  : 'table'
+              }
             />
           );
         }}
       </ConfirmStatusChange>
 
       <ImportModelsModal
-        resourceName="dataset"
-        resourceLabel={t('dataset')}
+        resourceName="predictive"
+        resourceLabel={t('predictive')}
         passwordsNeededMessage={PASSWORDS_NEEDED_MESSAGE}
         confirmOverwriteMessage={CONFIRM_OVERWRITE_MESSAGE}
         addDangerToast={addDangerToast}
         addSuccessToast={addSuccessToast}
-        onModelImport={handleDatasetImport}
-        show={importingDataset}
-        onHide={closeDatasetImportModal}
+        onModelImport={handleChartImport}
+        show={importingChart}
+        onHide={closeChartImportModal}
         passwordFields={passwordFields}
         setPasswordFields={setPasswordFields}
         sshTunnelPasswordFields={sshTunnelPasswordFields}
@@ -956,6 +873,6 @@ const PredictiveList: FunctionComponent<DatasetListProps> = ({
       {preparingExport && <Loading />}
     </>
   );
-};
+}
 
 export default withToasts(PredictiveList);

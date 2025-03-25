@@ -133,6 +133,7 @@ export enum QueryObjectColumns {
 
 export type ImportResourceName =
   | 'chart'
+  | 'predictive'
   | 'dashboard'
   | 'database'
   | 'dataset'

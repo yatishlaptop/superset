@@ -14,36 +14,24 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Views used by the SqlAlchemy connector"""
-
-from flask_appbuilder import expose
-from flask_appbuilder.security.decorators import (
-    has_access,
-    permission_name,
-)
+from flask_appbuilder import expose, has_access
 
 from superset.constants import MODEL_VIEW_RW_METHOD_PERMISSION_MAP
 from superset.superset_typing import FlaskResponse
 from superset.views.base import BaseSupersetView
 
 
-class RowLevelSecurityView(BaseSupersetView):
-    route_base = "/rowlevelsecurity"
-    class_permission_name = "RowLevelSecurity"
-
-    @expose("/list/")
-    @has_access
-    @permission_name("read")
-    def list(self) -> FlaskResponse:
-        return super().render_app_template()
-
-
-class TableModelView(BaseSupersetView):
-    class_permission_name = "Dataset"
+class PredictiveModelView(BaseSupersetView):
+    route_base = "/predictive"
+    class_permission_name = "Predictive"
     method_permission_name = MODEL_VIEW_RW_METHOD_PERMISSION_MAP
 
+    @expose("/add")
+    @has_access
+    def add(self) -> FlaskResponse:
+        return super().render_app_template()
+
     @expose("/list/")
     @has_access
     def list(self) -> FlaskResponse:
         return super().render_app_template()
-

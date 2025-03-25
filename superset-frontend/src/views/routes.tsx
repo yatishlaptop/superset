@@ -73,7 +73,10 @@ const DatabaseList = lazy(
 const DatasetList = lazy(
   () => import(/* webpackChunkName: "DatasetList" */ 'src/pages/DatasetList'),
 );
-
+const PredictiveCreation = lazy(
+  () =>
+    import(/* webpackChunkName: "ChartCreation" */ 'src/pages/PredictiveCreation'),
+);
 const PredictiveList = lazy(
   () => import(/* webpackChunkName: "DatasetList" */ 'src/pages/PredictiveList'),
 );
@@ -155,13 +158,18 @@ export const routes: Routes = [
     path: '/chart/list/',
     Component: ChartList,
   },
+
+  {
+    path: '/predictive/add',
+    Component: PredictiveCreation,
+  },
+  {
+    path: '/predictive/list/',
+    Component: PredictiveList,
+  },
   {
     path: '/tablemodelview/list/',
     Component: DatasetList,
-  },
-{
-    path: '/predictivemodelview/list/',
-    Component: PredictiveList,
   },
   {
     path: '/databaseview/list/',

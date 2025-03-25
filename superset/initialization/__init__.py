@@ -130,10 +130,11 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         from superset.cachekeys.api import CacheRestApi
         from superset.charts.api import ChartRestApi
         from superset.charts.data.api import ChartDataRestApi
+        from superset.predictive.api import PredictiveRestApi
+        from superset.predictive.data.api import PredictiveDataRestApi
         from superset.connectors.sqla.views import (
             RowLevelSecurityView,
             TableModelView,
-            PredictiveModelView
 
         )
         from superset.css_templates.api import CssTemplateRestApi
@@ -142,9 +143,6 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         from superset.dashboards.permalink.api import DashboardPermalinkRestApi
         from superset.databases.api import DatabaseRestApi
         from superset.datasets.api import DatasetRestApi
-        from superset.predictive.api import PredictiveRestApi
-        from superset.predictive.columns.api import PredictiveColumnsRestApi
-        from superset.predictive.metrics.api import PredictiveMetricRestApi
         from superset.datasets.columns.api import DatasetColumnsRestApi
         from superset.datasets.metrics.api import DatasetMetricRestApi
         from superset.datasource.api import DatasourceRestApi
@@ -168,6 +166,7 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         from superset.views.annotations import AnnotationLayerView
         from superset.views.api import Api
         from superset.views.chart.views import SliceModelView
+        from superset.views.predictive.views import PredictiveModelView
         from superset.views.core import Superset
         from superset.views.css_templates import CssTemplateModelView
         from superset.views.dashboard.views import (
@@ -175,7 +174,7 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
             DashboardModelView,
         )
         from superset.views.database.views import DatabaseView
-        from superset.views.datasource.views import DatasetEditor, Datasource ,ModelEditor
+        from superset.views.datasource.views import DatasetEditor, Datasource
         from superset.views.dynamic_plugins import DynamicPluginsView
         from superset.views.error_handling import set_app_error_handlers
         from superset.views.explore import ExplorePermalinkView, ExploreView
@@ -203,6 +202,8 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         appbuilder.add_api(CacheRestApi)
         appbuilder.add_api(ChartRestApi)
         appbuilder.add_api(ChartDataRestApi)
+        appbuilder.add_api(PredictiveRestApi)
+        appbuilder.add_api(PredictiveDataRestApi)
         appbuilder.add_api(CssTemplateRestApi)
         appbuilder.add_api(CurrentUserRestApi)
         appbuilder.add_api(UserRestApi)
@@ -211,13 +212,9 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         appbuilder.add_api(DashboardRestApi)
         appbuilder.add_api(DatabaseRestApi)
         appbuilder.add_api(DatasetRestApi)
-        appbuilder.add_api(PredictiveRestApi)
         appbuilder.add_api(DatasetColumnsRestApi)
         appbuilder.add_api(DatasetMetricRestApi)
-        #  -----------------------------------------
-        appbuilder.add_api(PredictiveMetricRestApi)
-        appbuilder.add_api(PredictiveColumnsRestApi)
-        #--------------------------------------------------
+
         appbuilder.add_api(DatasourceRestApi)
         appbuilder.add_api(EmbeddedDashboardRestApi)
         appbuilder.add_api(ExploreRestApi)
@@ -267,20 +264,20 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
             category_icon="",
         )
 
-        appbuilder.add_link(
-            "Datasets",
-            label=__("Datasets"),
-            href="/tablemodelview/list/",
-            icon="fa-table",
+        appbuilder.add_view(
+            PredictiveModelView,
+            "Predictive",
+            label=__("Predictive"),
+            icon="fa-bar-chart",
             category="",
             category_icon="",
         )
 
         appbuilder.add_link(
-            "Predictive",
-            label=__("Predictive Models"),
-            href="/predictivemodelview/list/",
-            icon="fa-line-chart",
+            "Datasets",
+            label=__("Datasets"),
+            href="/tablemodelview/list/",
+            icon="fa-table",
             category="",
             category_icon="",
         )
@@ -313,7 +310,6 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         appbuilder.add_view_no_menu(Dashboard)
         appbuilder.add_view_no_menu(Datasource)
         appbuilder.add_view_no_menu(DatasetEditor)
-        appbuilder.add_view_no_menu(ModelEditor)
         appbuilder.add_view_no_menu(EmbeddedView)
         appbuilder.add_view_no_menu(ExploreView)
         appbuilder.add_view_no_menu(ExplorePermalinkView)
@@ -321,7 +317,6 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         appbuilder.add_view_no_menu(SqllabView)
         appbuilder.add_view_no_menu(Superset)
         appbuilder.add_view_no_menu(TableModelView)
-        appbuilder.add_view_no_menu(PredictiveModelView)
 
 
         appbuilder.add_view_no_menu(TableSchemaView)
